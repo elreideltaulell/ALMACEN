@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Sistema de Gestión de Almacén - El Rei del Taulell">
+    <meta name="theme-color" content="#DAA520">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Rei del Taulell">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="icon" type="image/png" href="./icon-192.png">
+    <link rel="apple-touch-icon" href="./icon-512.png">
+    <title>El Rei del Taulell - Almacén</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 24px; }
+        .btn { padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover:not(:disabled) { background: #2563eb; }
+        .btn-secondary { background: #e2e8f0; color: #334155; }
+        .btn-secondary:hover:not(:disabled) { background: #cbd5e1; }
+        .btn-active { background: #3b82f6; color: white; }
+        .table { width: 100%; border-collapse: collapse; }
+        .table th { background: #f1f5f9; padding: 12px; text-align: left; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; }
+        .table td { padding: 12px; border-top: 1px solid #e2e8f0; font-size: 14px; }
+        .table tr:hover { background: #f8fafc; }
+        .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600; }
+        .badge-green { background: #dcfce7; color: #166534; }
+        .badge-blue { background: #dbeafe; color: #1e40af; }
+        .badge-yellow { background: #fef3c7; color: #92400e; }
+        .badge-red { background: #fee2e2; color: #991b1b; }
+        .badge-gray { background: #f1f5f9; color: #475569; }
+        .kpi-card { background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 24px; border-left: 4px solid; }
+        .loading { text-align: center; padding: 40px; }
+        .spinner { border: 4px solid #f3f4f6; border-top: 4px solid #3b82f6; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // URL del Excel en SharePoint/OneDrive
+        const EXCEL_URL = 'https://reideltaulell-my.sharepoint.com/:x:/g/personal/reitaulell_reideltaulell_onmicrosoft_com/IQD_AfwoC4R0T45oyENWIGAYARRd-XJqdRsCd4vfBNy0Dvw?e=Z8sdVH';
+        
+        // Convertir URL de SharePoint a URL de descarga directa
+        const DOWNLOAD_URL = EXCEL_URL.replace('/:x:/', '/:x:/download?').replace('?e=', '&download=1&e=');
+
+        function GraficaEvolucion({ mesesOrdenados, m2PorMes }) {
+            useEffect(() => {
+                if (mesesOrdenados.length === 0) return;
+                
+                const canvas = document.getElementById('grafica-evolucion');
+                if (!canvas) return;
+                
+                const datosVendidos = mesesOrdenados.map(mes => Math.round(m2PorMes[mes].vendidos));
+                const datosAnadidos = mesesOrdenados.map(mes => Math.round(m2PorMes[mes].anadidos));
+                const etiquetasMeses = mesesOrdenados.map(mes => `Mes ${mes}`);
+                
+                // Destruir gráfica anterior si existe
+                const chartInstance = Chart.getChart(canvas);
+                if (chartInstance) {
+                    chartInstance.destroy();
+                }
+                
+                new Chart(canvas, {
+                    type: 'line',
+                    data: {
+                        labels: etiquetasMeses,
+                        datasets: [
+                            {
+                                label: '⬇️ M² Vendidos',
+                                data: datosVendidos,
+                                borderColor: '#ef4444',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                tension: 0.3,
+                                fill: true,
+                                borderWidth: 3,
+                                pointRadius: 5,
+                                pointBackgroundColor: '#ef4444'
+                            },
+                            {
+                                label: '⬆️ M² Añadidos',
+                                data: datosAnadidos,
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                tension: 0.3,
+                                fill: true,
+                                borderWidth: 3,
+                                pointRadius: 5,
+                                pointBackgroundColor: '#10b981'
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: {
+                                    font: { size: 14, weight: 'bold' },
+                                    padding: 15
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                padding: 12,
+                                titleFont: { size: 14, weight: 'bold' },
+                                bodyFont: { size: 13 },
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.dataset.label + ': ' + context.parsed.y.toLocaleString() + ' m²';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value.toLocaleString() + ' m²';
+                                    },
+                                    font: { size: 12 }
+                                },
+                                grid: {
+                                    color: 'rgba(0, 0, 0, 0.05)'
+                                }
+                            },
+                            x: {
+                                ticks: {
+                                    font: { size: 12, weight: 'bold' }
+                                },
+                                grid: {
+                                    display: false
+                                }
+                            }
+                        }
+                    }
+                });
+            }, [mesesOrdenados, m2PorMes]);
+            
+            return <canvas id="grafica-evolucion"></canvas>;
+        }
+
+        function SistemaAlmacen() {
+            const [vista, setVista] = useState('carga');
+            const [data, setData] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
+            const [filterZona, setFilterZona] = useState('TODAS');
+            const [searchProducto, setSearchProducto] = useState('');
+            const [searchPedido, setSearchPedido] = useState('');
+            const [itemsPorPagina, setItemsPorPagina] = useState(50);
+            const [paginaActual, setPaginaActual] = useState({});
+
+            async function cargarDatosExcel() {
+                setLoading(true);
+                setError(null);
+                
+                try {
+                    console.log('📥 Descargando Excel desde SharePoint...');
+                    
+                    const response = await fetch(DOWNLOAD_URL, {
+                        method: 'GET',
+                        mode: 'cors',
+                        credentials: 'include'
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Error al descargar: ${response.status}`);
+                    }
+                    
+                    const arrayBuffer = await response.arrayBuffer();
+                    procesarExcel(arrayBuffer);
+                    
+                } catch (err) {
+                    console.error('❌ Error:', err);
+                    setError(`Error al cargar datos: ${err.message}. 
+
+⚠️ PROBLEMA COMÚN: SharePoint requiere autenticación.
+
+SOLUCIÓN:
+1. Descarga el Excel manualmente desde el link
+2. Sube el archivo usando el botón de abajo
+3. O contacta con IT para configurar acceso público`);
+                    setLoading(false);
+                }
+            }
+
+            function procesarExcel(arrayBuffer) {
+                try {
+                    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                    console.log('✅ Excel cargado. Hojas:', workbook.SheetNames);
+                    
+                    const files = {};
+                    
+                    // Procesar PEDIDOS_COMPLETADOS (fila 1)
+                    const nombrePedidos = workbook.SheetNames.find(n => 
+                        n === 'PEDIDOS_COMPLETADOS' || n === 'PEDIDOS COMPLETADOS'
+                    );
+                    
+                    if (nombrePedidos) {
+                        const sheet = workbook.Sheets[nombrePedidos];
+                        const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                        const headers = jsonData[0];
+                        const processedData = [];
+                        for (let i = 1; i < jsonData.length; i++) {
+                            const obj = {};
+                            headers.forEach((h, idx) => { obj[h] = jsonData[i][idx] || ''; });
+                            // AÑADIR COLUMNA I DIRECTAMENTE (índice 8)
+                            obj['_UBICACION_P_'] = jsonData[i][8] || '';
+                            processedData.push(obj);
+                        }
+                        files.pedidos = processedData;
+                        console.log('✅ PEDIDOS:', processedData.length, 'filas');
+                    }
+                    
+                    // Procesar HISTORICO (fila 1)
+                    if (workbook.SheetNames.includes('HISTORICO')) {
+                        const sheet = workbook.Sheets['HISTORICO'];
+                        const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                        const headers = jsonData[0];
+                        const processedData = [];
+                        for (let i = 1; i < jsonData.length; i++) {
+                            const obj = {};
+                            headers.forEach((h, idx) => { obj[h] = jsonData[i][idx] || ''; });
+                            processedData.push(obj);
+                        }
+                        files.historico = processedData;
+                        console.log('✅ HISTORICO:', processedData.length, 'filas');
+                    }
+                    
+                    // Procesar UBICACIONES (fila 4)
+                    const ubicaciones = ['UBICACION_IC2', 'UBICACION_EST1', 'UBICACION_EST2', 'UBICACION_EST3', 'UBICACION_EXTERIOR'];
+                    const mappings = {
+                        'UBICACION_IC2': 'ic2',
+                        'UBICACION_EST1': 'est1',
+                        'UBICACION_EST2': 'est2',
+                        'UBICACION_EST3': 'est3',
+                        'UBICACION_EXTERIOR': 'exterior'
+                    };
+                    
+                    ubicaciones.forEach(nombreHoja => {
+                        if (workbook.SheetNames.includes(nombreHoja)) {
+                            const sheet = workbook.Sheets[nombreHoja];
+                            const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                            const headers = jsonData[3]; // Fila 4 (índice 3)
+                            const processedData = [];
+                            for (let i = 4; i < jsonData.length; i++) {
+                                const obj = {};
+                                headers.forEach((h, idx) => { obj[h] = jsonData[i][idx] || ''; });
+                                processedData.push(obj);
+                            }
+                            files[mappings[nombreHoja]] = processedData;
+                            console.log(`✅ ${nombreHoja}:`, processedData.length, 'filas');
+                        }
+                    });
+                    
+                    setData(files);
+                    setVista('dashboard');
+                    setLoading(false);
+                    console.log('🎉 Datos cargados correctamente');
+                    
+                } catch (err) {
+                    console.error('❌ Error procesando:', err);
+                    setError(`Error al procesar Excel: ${err.message}`);
+                    setLoading(false);
+                }
+            }
+
+            function handleFileUpload(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                setLoading(true);
+                setError(null);
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const data = new Uint8Array(e.target.result);
+                    procesarExcel(data);
+                };
+                reader.readAsArrayBuffer(file);
+            }
+
+            if (!data) {
+                return (
+                    <div style={{minHeight: '100vh', background: 'linear-gradient(to bottom right, #f8fafc, #e0f2fe)', padding: '24px'}}>
+                        <div style={{maxWidth: '800px', margin: '0 auto'}}>
+                            <h1 style={{fontSize: '36px', fontWeight: 'bold', marginBottom: '32px', textAlign: 'center'}}>
+                                🏭 Sistema de Almacén
+                            </h1>
+                            
+                            <div className="card">
+                                <h2 style={{fontSize: '24px', fontWeight: 'bold', marginBottom: '16px'}}>
+                                    ☁️ Cargar desde OneDrive
+                                </h2>
+                                <p style={{color: '#64748b', marginBottom: '16px', fontSize: '14px'}}>
+                                    Los datos se cargarán automáticamente desde el Excel compartido en SharePoint.
+                                </p>
+                                
+                                {loading && (
+                                    <div className="loading">
+                                        <div className="spinner"></div>
+                                        <p style={{marginTop: '16px', color: '#64748b'}}>Cargando datos...</p>
+                                    </div>
+                                )}
+                                
+                                {error && (
+                                    <div style={{padding: '16px', background: '#fee2e2', border: '1px solid #ef4444', borderRadius: '8px', marginBottom: '16px'}}>
+                                        <p style={{color: '#991b1b', fontWeight: '600', marginBottom: '8px'}}>⚠️ Error</p>
+                                        <p style={{color: '#991b1b', fontSize: '14px', whiteSpace: 'pre-line'}}>{error}</p>
+                                    </div>
+                                )}
+                                
+                                {!loading && (
+                                    <button 
+                                        onClick={cargarDatosExcel}
+                                        className="btn btn-primary"
+                                        style={{width: '100%', marginBottom: '24px'}}
+                                    >
+                                        📥 Cargar Datos desde OneDrive
+                                    </button>
+                                )}
+                                
+                                <div style={{borderTop: '1px solid #e2e8f0', paddingTop: '24px', marginTop: '24px'}}>
+                                    <h3 style={{fontSize: '16px', fontWeight: '600', marginBottom: '12px'}}>
+                                        📁 O sube el archivo manualmente
+                                    </h3>
+                                    <p style={{color: '#64748b', fontSize: '14px', marginBottom: '12px'}}>
+                                        Si la carga automática no funciona, descarga el Excel y súbelo aquí:
+                                    </p>
+                                    <input 
+                                        type="file" 
+                                        accept=".xlsx,.xlsm,.xls" 
+                                        onChange={handleFileUpload}
+                                        disabled={loading}
+                                        style={{
+                                            display: 'block',
+                                            width: '100%',
+                                            padding: '12px',
+                                            border: '2px dashed #cbd5e1',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontSize: '14px'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            const pedidos = data.pedidos || [];
+            const historico = data.historico || [];
+            
+            // Procesar ubicaciones
+            const ubicaciones = {};
+            ['IC2', 'EST1', 'EST2', 'EST3', 'EXTERIOR'].forEach(zona => {
+                const key = zona.toLowerCase();
+                if (data[key]) {
+                    const todosLosItems = data[key];
+                    ubicaciones[zona] = todosLosItems.filter(r => {
+                        const producto = r['NOMBRE DEL PRODUCTO'] || '';
+                        return producto.toString().trim() !== '';
+                    });
+                    console.log(`${zona}: ${ubicaciones[zona].length} productos`);
+                }
+            });
+
+            // Total M²
+            const totalM2 = Object.values(ubicaciones).flat().reduce((sum, item) => {
+                let m2 = 0;
+                for (let key in item) {
+                    if (key.includes('m2') || key.includes('M2') || key.includes('QUEDAN')) {
+                        const valor = parseFloat(item[key]);
+                        if (!isNaN(valor) && valor > 0) {
+                            m2 = valor;
+                            break;
+                        }
+                    }
+                }
+                return sum + m2;
+            }, 0);
+
+            // M² por mes
+            const m2PorMes = {};
+            
+            console.log('\n📊 PROCESANDO HISTORICO...');
+            console.log(`Total filas HISTORICO: ${historico.length}`);
+            
+            historico.forEach((h, idx) => {
+                const fecha = h['FECHA'] || '';
+                if (!fecha) {
+                    if (idx < 5) console.log(`Fila ${idx}: Sin fecha`);
+                    return;
+                }
+                
+                let mes = '';
+                
+                // Si es un número (formato Excel), convertir
+                if (typeof fecha === 'number') {
+                    const date = new Date((fecha - 25569) * 86400 * 1000);
+                    mes = String(date.getMonth() + 1).padStart(2, '0');
+                } else {
+                    // Si es texto con /
+                    const fechaStr = fecha.toString();
+                    if (fechaStr.includes('/')) {
+                        const partes = fechaStr.split('/');
+                        if (partes.length >= 2) {
+                            mes = partes[1].padStart(2, '0');
+                        }
+                    }
+                }
+                
+                if (!mes) {
+                    if (idx < 5) console.log(`Fila ${idx}: No se pudo extraer mes de "${fecha}"`);
+                    return;
+                }
+                
+                if (!m2PorMes[mes]) m2PorMes[mes] = { vendidos: 0, anadidos: 0 };
+                
+                const quitados = parseFloat(h['M2 QUITADOS'] || 0);
+                const anadidos = parseFloat(h['M2 ANADIDOS'] || h['M2 AÑADIDOS'] || 0);
+                
+                m2PorMes[mes].vendidos += quitados;
+                m2PorMes[mes].anadidos += anadidos;
+                
+                if (idx < 3) {
+                    console.log(`Fila ${idx}: Fecha="${fecha}", Mes="${mes}", Quitados=${quitados}, Añadidos=${anadidos}`);
+                }
+            });
+            
+            console.log('\n✅ MESES DETECTADOS:', Object.keys(m2PorMes).sort());
+            console.log('📊 TOTAL MESES:', Object.keys(m2PorMes).length);
+
+            const mesesOrdenados = Object.keys(m2PorMes).sort();
+
+            const renderDashboard = () => (
+                <div>
+                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px', marginBottom: '24px'}}>
+                        <div className="kpi-card" style={{borderLeftColor: '#3b82f6'}}>
+                            <p style={{fontSize: '14px', color: '#64748b'}}>📦 Pedidos</p>
+                            <p style={{fontSize: '32px', fontWeight: 'bold'}}>{pedidos.length}</p>
+                        </div>
+                        <div className="kpi-card" style={{borderLeftColor: '#10b981'}}>
+                            <p style={{fontSize: '14px', color: '#64748b'}}>📊 M² Stock</p>
+                            <p style={{fontSize: '32px', fontWeight: 'bold'}}>{Math.round(totalM2).toLocaleString()}</p>
+                        </div>
+                    </div>
+                    
+                    {mesesOrdenados.length > 0 && (
+                        <div className="card">
+                            <h3 style={{fontSize: '20px', fontWeight: '600', marginBottom: '20px'}}>📈 Evolución de M² por Mes</h3>
+                            <div style={{height: '350px', marginBottom: '30px'}}>
+                                <GraficaEvolucion mesesOrdenados={mesesOrdenados} m2PorMes={m2PorMes} />
+                            </div>
+                        </div>
+                    )}
+                    
+                    <div className="card">
+                        <h3 style={{fontSize: '18px', fontWeight: '600', marginBottom: '16px'}}>📊 Detalle por Mes</h3>
+                        {mesesOrdenados.length === 0 ? (
+                            <p style={{color: '#64748b', textAlign: 'center', padding: '20px'}}>
+                                No hay datos de histórico disponibles
+                            </p>
+                        ) : (
+                            mesesOrdenados.map((mes) => {
+                                const d = m2PorMes[mes];
+                                const balance = d.anadidos - d.vendidos;
+                                return (
+                                    <div key={mes} style={{marginBottom: '16px', padding: '16px', background: '#f8fafc', borderRadius: '8px'}}>
+                                        <p style={{fontWeight: '600', marginBottom: '12px'}}>Mes {mes}/2025</p>
+                                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px'}}>
+                                            <div>
+                                                <span style={{fontSize: '12px', color: '#64748b'}}>⬇️ Vendidos</span>
+                                                <p style={{fontSize: '24px', fontWeight: 'bold', color: '#ef4444'}}>{Math.round(d.vendidos).toLocaleString()} m²</p>
+                                            </div>
+                                            <div>
+                                                <span style={{fontSize: '12px', color: '#64748b'}}>⬆️ Añadidos</span>
+                                                <p style={{fontSize: '24px', fontWeight: 'bold', color: '#10b981'}}>{Math.round(d.anadidos).toLocaleString()} m²</p>
+                                            </div>
+                                            <div>
+                                                <span style={{fontSize: '12px', color: '#64748b'}}>💹 Balance</span>
+                                                <p style={{fontSize: '24px', fontWeight: 'bold', color: balance >= 0 ? '#10b981' : '#ef4444'}}>
+                                                    {balance >= 0 ? '+' : ''}{Math.round(balance).toLocaleString()} m²
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            );
+
+            const renderStock = () => {
+                const filtradas = {};
+                Object.entries(ubicaciones).forEach(([zona, items]) => {
+                    if (filterZona !== 'TODAS' && filterZona !== zona) return;
+                    const itemsFiltrados = items.filter(item => {
+                        if (!searchProducto) return true;
+                        const prod = item['NOMBRE DEL PRODUCTO'] || '';
+                        return prod.toLowerCase().includes(searchProducto.toLowerCase());
+                    });
+                    if (itemsFiltrados.length > 0) filtradas[zona] = itemsFiltrados;
+                });
+
+                return (
+                    <div className="card">
+                        <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '16px'}}>
+                            <h2 style={{fontSize: '24px', fontWeight: 'bold'}}>🏢 Stock</h2>
+                            <div style={{display: 'flex', gap: '12px', flexWrap: 'wrap'}}>
+                                <input
+                                    type="text"
+                                    placeholder="🔍 Buscar producto..."
+                                    value={searchProducto}
+                                    onChange={(e) => setSearchProducto(e.target.value)}
+                                    style={{padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '8px', minWidth: '250px'}}
+                                />
+                                <select value={itemsPorPagina} onChange={(e) => { setItemsPorPagina(Number(e.target.value)); setPaginaActual({}); }} style={{padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '8px'}}>
+                                    <option value={20}>20 por página</option>
+                                    <option value={50}>50 por página</option>
+                                    <option value={100}>100 por página</option>
+                                    <option value={999999}>Todos</option>
+                                </select>
+                                <select value={filterZona} onChange={(e) => { setFilterZona(e.target.value); setPaginaActual({}); }} style={{padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '8px'}}>
+                                    <option value="TODAS">Todas</option>
+                                    {Object.keys(ubicaciones).map(z => (
+                                        <option key={z} value={z}>{z} ({ubicaciones[z].length})</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        {Object.entries(filtradas).map(([zona, items]) => {
+                            const pagina = paginaActual[zona] || 1;
+                            const totalPaginas = Math.ceil(items.length / itemsPorPagina);
+                            const inicio = (pagina - 1) * itemsPorPagina;
+                            const fin = inicio + itemsPorPagina;
+                            const itemsPaginados = items.slice(inicio, fin);
+                            
+                            return (
+                                <div key={zona} style={{marginBottom: '32px'}}>
+                                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px'}}>
+                                        <h3 style={{fontSize: '18px', fontWeight: '600', background: '#eff6ff', padding: '12px', borderRadius: '8px', margin: 0}}>
+                                            {zona} ({items.length})
+                                        </h3>
+                                        {totalPaginas > 1 && (
+                                            <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
+                                                <button 
+                                                    onClick={() => setPaginaActual(prev => ({...prev, [zona]: Math.max(1, pagina - 1)}))}
+                                                    disabled={pagina === 1}
+                                                    className="btn btn-secondary"
+                                                    style={{padding: '6px 12px', fontSize: '14px', opacity: pagina === 1 ? 0.5 : 1}}
+                                                >
+                                                    ← Anterior
+                                                </button>
+                                                <span style={{fontSize: '14px', color: '#64748b'}}>
+                                                    Página {pagina} de {totalPaginas}
+                                                </span>
+                                                <button 
+                                                    onClick={() => setPaginaActual(prev => ({...prev, [zona]: Math.min(totalPaginas, pagina + 1)}))}
+                                                    disabled={pagina === totalPaginas}
+                                                    className="btn btn-secondary"
+                                                    style={{padding: '6px 12px', fontSize: '14px', opacity: pagina === totalPaginas ? 0.5 : 1}}
+                                                >
+                                                    Siguiente →
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <table className="table">
+                                        <thead>
+                                            <tr>
+                                                <th>Ubicación</th>
+                                                <th>Producto</th>
+                                                <th>Dimensiones</th>
+                                                <th style={{textAlign: 'right'}}>M²</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {itemsPaginados.map((item, idx) => {
+                                                let ubicNum = '';
+                                                for (let key in item) {
+                                                    if (key.includes('UBICACI')) {
+                                                        ubicNum = item[key];
+                                                        break;
+                                                    }
+                                                }
+                                                
+                                                let producto = item['NOMBRE DEL PRODUCTO'] || item['NOMBRE'] || item['PRODUCTO'] || '';
+                                                if (!producto) {
+                                                    for (let key in item) {
+                                                        if (key.includes('NOMBRE') || key.includes('PRODUCTO')) {
+                                                            producto = item[key] || '';
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                const dim = item['DIMENSIONES'] || '';
+                                                
+                                                let m2 = 0;
+                                                for (let key in item) {
+                                                    if (key.includes('m2') || key.includes('M2') || key.includes('QUEDAN')) {
+                                                        const valor = parseFloat(item[key]);
+                                                        if (!isNaN(valor)) {
+                                                            m2 = valor;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                return (
+                                                    <tr key={idx}>
+                                                        <td style={{fontWeight: '600', color: '#3b82f6', fontSize: '15px'}}>{zona}:{ubicNum}</td>
+                                                        <td>{producto}</td>
+                                                        <td style={{color: '#64748b'}}>{dim}</td>
+                                                        <td style={{textAlign: 'right', fontWeight: '700', fontSize: '16px', color: m2 < 50 ? '#dc2626' : '#16a34a'}}>{m2.toFixed(2)} m²</td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                    {totalPaginas > 1 && (
+                                        <div style={{marginTop: '12px', textAlign: 'center', color: '#64748b', fontSize: '14px'}}>
+                                            Mostrando {inicio + 1}-{Math.min(fin, items.length)} de {items.length}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                );
+            };
+
+            const renderPedidos = () => {
+                // Función para convertir número de Excel a fecha
+                function excelDateToJSDate(excelDate) {
+                    if (typeof excelDate === 'number') {
+                        const date = new Date((excelDate - 25569) * 86400 * 1000);
+                        const day = String(date.getDate()).padStart(2, '0');
+                        const month = String(date.getMonth() + 1).padStart(2, '0');
+                        const year = date.getFullYear();
+                        return `${day}/${month}/${year}`;
+                    }
+                    return excelDate;
+                }
+                
+                const pedidosFiltrados = pedidos.filter(p => {
+                    if (!searchPedido) return true;
+                    
+                    const numPedido = (p['Nº PEDIDO'] || p['N� PEDIDO'] || p['NUM PEDIDO'] || '').toString().toLowerCase();
+                    const cliente = (p['CLIENTE'] || '').toString().toLowerCase();
+                    const producto = (p['PRODUCTO'] || '').toString().toLowerCase();
+                    const searchLower = searchPedido.toLowerCase();
+                    
+                    return numPedido.includes(searchLower) || 
+                           cliente.includes(searchLower) ||
+                           producto.includes(searchLower);
+                });
+                
+                return (
+                    <div className="card">
+                        <h2 style={{fontSize: '24px', fontWeight: 'bold', marginBottom: '16px'}}>📦 Pedidos</h2>
+                        <div style={{marginBottom: '16px'}}>
+                            <input
+                                type="text"
+                                placeholder="🔍 Buscar por nº pedido, cliente o producto..."
+                                value={searchPedido}
+                                onChange={(e) => setSearchPedido(e.target.value)}
+                                style={{width: '100%', maxWidth: '500px', padding: '10px 16px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px'}}
+                            />
+                        </div>
+                        <p style={{marginBottom: '16px', color: '#64748b', fontSize: '14px'}}>
+                            Mostrando {pedidosFiltrados.length} de {pedidos.length} pedidos
+                        </p>
+                        <div style={{overflowX: 'auto'}}>
+                            <table className="table">
+                                <thead>
+                                    <tr>
+                                        <th>Nº</th>
+                                        <th>Producto</th>
+                                        <th>Cliente</th>
+                                        <th>Operario</th>
+                                        <th>Fecha</th>
+                                        <th>M²</th>
+                                        <th>Estado</th>
+                                        <th>Ubicación P</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pedidosFiltrados.slice(0, 100).map((p, idx) => {
+                                        const fecha = excelDateToJSDate(p['FECHA'] || '');
+                                        const m2 = p['M2 QUITADOS'] || '';
+                                        const ubicacionP = p['_UBICACION_P_'] || '';
+                                        
+                                        return (
+                                            <tr key={idx}>
+                                                <td style={{fontWeight: 'bold', color: '#3b82f6'}}>{p['Nº PEDIDO'] || p['N� PEDIDO'] || p['NUM PEDIDO'] || ''}</td>
+                                                <td>{p['PRODUCTO'] || ''}</td>
+                                                <td style={{fontWeight: '500'}}>{p['CLIENTE'] || ''}</td>
+                                                <td style={{color: '#64748b'}}>{p['NOMBRE'] || ''}</td>
+                                                <td style={{fontSize: '13px', color: '#64748b'}}>{fecha}</td>
+                                                <td style={{textAlign: 'right', fontWeight: '600'}}>{m2}</td>
+                                                <td>
+                                                    {p['ESTADO'] && (
+                                                        <span className={`badge ${
+                                                            p['ESTADO'] === 'PREPARADO' ? 'badge-green' :
+                                                            p['ESTADO'] === 'UBICADO' ? 'badge-blue' :
+                                                            p['ESTADO'] === 'PENDIENTE' ? 'badge-yellow' : 'badge-gray'
+                                                        }`}>
+                                                            {p['ESTADO']}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td style={{fontWeight: '600', color: ubicacionP ? '#10b981' : '#94a3b8', fontSize: '15px'}}>
+                                                    {ubicacionP || '-'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                );
+            };
+
+            return (
+                <div style={{minHeight: '100vh', background: 'linear-gradient(to bottom right, #f8fafc, #e0f2fe)', padding: '24px'}}>
+                    <div style={{maxWidth: '1280px', margin: '0 auto'}}>
+                        <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '32px', flexWrap: 'wrap'}}>
+                            <h1 style={{fontSize: '36px', fontWeight: 'bold'}}>Sistema de Almacén</h1>
+                            <button onClick={() => { setData(null); setVista('carga'); }} className="btn btn-secondary">🔄 Recargar</button>
+                        </div>
+                        <div style={{background: 'white', borderRadius: '12px', padding: '8px', marginBottom: '24px'}}>
+                            <button onClick={() => setVista('dashboard')} className={`btn ${vista === 'dashboard' ? 'btn-active' : 'btn-secondary'}`}>📊 Dashboard</button>
+                            <button onClick={() => setVista('stock')} className={`btn ${vista === 'stock' ? 'btn-active' : 'btn-secondary'}`} style={{marginLeft: '8px'}}>🏢 Stock</button>
+                            <button onClick={() => setVista('pedidos')} className={`btn ${vista === 'pedidos' ? 'btn-active' : 'btn-secondary'}`} style={{marginLeft: '8px'}}>📦 Pedidos</button>
+                        </div>
+                        {vista === 'dashboard' && renderDashboard()}
+                        {vista === 'stock' && renderStock()}
+                        {vista === 'pedidos' && renderPedidos()}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<SistemaAlmacen />, document.getElementById('root'));
+    </script>
+    <script>
+        // Registrar Service Worker para PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then((reg) => console.log('✅ Service Worker registrado'))
+                    .catch((err) => console.log('❌ Error SW:', err));
+            });
+        }
+        
+        // Prompt para instalar la app
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            
+            // Mostrar botón de instalación después de 3 segundos
+            setTimeout(() => {
+                if (deferredPrompt && !window.matchMedia('(display-mode: standalone)').matches) {
+                    const installDiv = document.createElement('div');
+                    installDiv.style.cssText = 'position: fixed; bottom: 20px; right: 20px; background: #DAA520; color: white; padding: 16px 24px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 9999; font-weight: 600; cursor: pointer; animation: slideIn 0.3s ease;';
+                    installDiv.innerHTML = '📱 Instalar App';
+                    installDiv.onclick = () => {
+                        deferredPrompt.prompt();
+                        deferredPrompt.userChoice.then((choiceResult) => {
+                            if (choiceResult.outcome === 'accepted') {
+                                console.log('✅ App instalada');
+                            }
+                            deferredPrompt = null;
+                            installDiv.remove();
+                        });
+                    };
+                    document.body.appendChild(installDiv);
+                    
+                    const style = document.createElement('style');
+                    style.textContent = '@keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }';
+                    document.head.appendChild(style);
+                }
+            }, 3000);
+        });
+    </script>
+</body>
+</html>
